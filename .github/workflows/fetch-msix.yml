@@ -1,0 +1,66 @@
+name: 获取 Claude Desktop MSIX
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'MSIX 版本号（留空则自动获取最新版）'
+        required: false
+        default: 'latest'
+
+jobs:
+  fetch-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 下载 Claude Desktop MSIX
+        shell: pwsh
+        run: |
+          $url = "https://claude.ai/api/desktop/win32/x64/msix/latest/redirect"
+          Write-Host "下载地址: $url"
+
+          # 跟随重定向下载
+          $response = Invoke-WebRequest -Uri $url -MaximumRedirection 5 -OutFile "Claude.msix" -PassThru
+          Write-Host "下载完成: $($response.StatusCode)"
+
+          $fileSize = (Get-Item "Claude.msix").Length
+          Write-Host "文件大小: $($fileSize) bytes"
+
+          if ($fileSize -lt 1000000) {
+            Write-Host "警告：文件小于 1MB，可能不是有效的安装包"
+            Get-Content "Claude.msix" -First 5
+            exit 1
+          }
+
+          Write-Host "MSIX 下载成功！"
+
+      - name: 提取版本号
+        shell: pwsh
+        run: |
+          # 从文件名或文件属性提取版本
+          $file = Get-Item "Claude.msix"
+          $versionInfo = (Get-AppxPackage -Path "Claude.msix" -ErrorAction SilentlyContinue).Version
+          if (-not $versionInfo) {
+            $versionInfo = "latest"
+          }
+          echo "VERSION=$versionInfo" >> $env:GITHUB_ENV
+          Write-Host "版本: $versionInfo"
+
+      - name: 创建 Release 并上传
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Claude Desktop MSIX"
+          tag_name: "msix-${{ github.run_number }}"
+          body: |
+            ## Claude Desktop Windows MSIX 安装包
+
+            - **Run**: ${{ github.run_number }}
+            - **日期**: ${{ github.event.repository.updated_at }}
+
+            ### 安装方法
+            以管理员身份打开 PowerShell：
+            ```powershell
+            Add-AppxPackage -Path "Claude.msix"
+            ```
+          files: Claude.msix
